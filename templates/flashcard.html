@@ -316,7 +316,7 @@
                     <div class="flashcard-front">
                         <div class="word-container">
                             <div class="word" id="word">加载中...</div>
-                            <button class="speaker-btn" id="speaker-btn-front" onclick="pronounceWord('word')" title="发音 (Pronounce)">
+                            <button class="speaker-btn" id="speaker-btn-front" onclick="event.stopPropagation(); pronounceWord('word');" title="发音 (Pronounce)">
                                 🔊
                             </button>
                         </div>
@@ -325,7 +325,7 @@
                     <div class="flashcard-back">
                         <div style="display: flex; align-items: center; justify-content: center; gap: 15px; margin-bottom: 20px;">
                             <div class="pronunciation" id="pronunciation"></div>
-                            <button class="speaker-btn" id="speaker-btn-back" onclick="pronounceWord('pronunciation')" title="发音 (Pronounce)">
+                            <button class="speaker-btn" id="speaker-btn-back" onclick="event.stopPropagation(); pronounceWord('pronunciation');" title="发音 (Pronounce)">
                                 🔊
                             </button>
                         </div>
@@ -481,8 +481,50 @@
 
         // Text-to-speech function
         let currentUtterance = null;
+        let voicesLoaded = false;
+        
+        // Check if speech synthesis is available
+        function checkSpeechSynthesis() {
+            if (!('speechSynthesis' in window)) {
+                console.warn('Speech synthesis not supported in this browser');
+                return false;
+            }
+            return true;
+        }
+        
+        // Load voices
+        function loadVoices() {
+            if (!checkSpeechSynthesis()) return;
+            
+            const voices = window.speechSynthesis.getVoices();
+            if (voices.length > 0) {
+                voicesLoaded = true;
+                console.log('Voices loaded:', voices.length);
+                return voices;
+            }
+            return null;
+        }
+        
+        // Initialize voices on page load
+        if (checkSpeechSynthesis()) {
+            // Load voices immediately
+            loadVoices();
+            
+            // Also listen for voices changed event
+            if ('onvoiceschanged' in window.speechSynthesis) {
+                window.speechSynthesis.onvoiceschanged = function() {
+                    loadVoices();
+                };
+            }
+        }
         
         function pronounceWord(elementType) {
+            // Check if speech synthesis is available
+            if (!checkSpeechSynthesis()) {
+                alert('Text-to-speech is not supported in your browser. Please try Chrome, Edge, or Safari.');
+                return;
+            }
+            
             // If same button clicked and speech is playing, stop it
             const speakerBtn = elementType === 'word' 
                 ? document.getElementById('speaker-btn-front')
@@ -501,18 +543,32 @@
             let element = null;
             
             if (elementType === 'word') {
-                // Pronounce the Chinese word
-                element = document.getElementById('word');
-                textToSpeak = element.textContent.trim();
+                // For Chinese word, try to get pronunciation from the card data
+                const card = flashcards[currentIndex];
+                if (card && card.pronunciation) {
+                    // Use pinyin pronunciation instead of Chinese characters (works better)
+                    textToSpeak = card.pronunciation.split('/')[0].trim(); // Get first pronunciation
+                } else {
+                    // Fallback to Chinese word
+                    element = document.getElementById('word');
+                    textToSpeak = element.textContent.trim();
+                }
             } else if (elementType === 'pronunciation') {
                 // Pronounce the pinyin pronunciation
                 element = document.getElementById('pronunciation');
                 textToSpeak = element.textContent.trim();
+                // Clean up - take first pronunciation if multiple
+                if (textToSpeak.includes('/')) {
+                    textToSpeak = textToSpeak.split('/')[0].trim();
+                }
             }
             
             if (!textToSpeak || textToSpeak === '无拼音' || textToSpeak === '加载中...') {
+                console.warn('No text to speak');
                 return;
             }
+            
+            console.log('Speaking:', textToSpeak);
             
             // Add playing class
             speakerBtn.classList.add('playing');
@@ -521,61 +577,100 @@
             const utterance = new SpeechSynthesisUtterance(textToSpeak);
             currentUtterance = utterance;
             
-            // Try to set Chinese language (zh-CN) for better pronunciation
-            function setVoice() {
-                const voices = window.speechSynthesis.getVoices();
-                // Try to find Chinese voice
-                const chineseVoice = voices.find(voice => 
-                    voice.lang.includes('zh') || 
-                    voice.lang.includes('CN') ||
-                    voice.name.toLowerCase().includes('chinese')
-                );
+            // Function to actually speak
+            function speakText() {
+                // Ensure voices are loaded
+                let voices = window.speechSynthesis.getVoices();
                 
-                if (chineseVoice) {
-                    utterance.voice = chineseVoice;
-                    utterance.lang = 'zh-CN';
-                } else {
-                    // Fallback: use default voice but set language
-                    utterance.lang = 'zh-CN';
+                // If no voices, try loading again
+                if (voices.length === 0) {
+                    voices = loadVoices();
+                    if (!voices) {
+                        voices = window.speechSynthesis.getVoices();
+                    }
                 }
                 
-                utterance.rate = 0.9; // Slightly slower for clarity
+                // Try to find Chinese voice
+                let selectedVoice = null;
+                if (voices && voices.length > 0) {
+                    selectedVoice = voices.find(voice => 
+                        voice.lang.includes('zh') || 
+                        voice.lang.includes('CN') ||
+                        voice.name.toLowerCase().includes('chinese') ||
+                        voice.name.toLowerCase().includes('mandarin')
+                    );
+                    
+                    // If no Chinese voice, try to find any voice that supports Chinese
+                    if (!selectedVoice) {
+                        selectedVoice = voices.find(voice => 
+                            voice.lang.startsWith('zh')
+                        );
+                    }
+                }
+                
+                // Set voice and language
+                if (selectedVoice) {
+                    utterance.voice = selectedVoice;
+                    utterance.lang = selectedVoice.lang || 'zh-CN';
+                    console.log('Using voice:', selectedVoice.name, selectedVoice.lang);
+                } else {
+                    // Fallback: use default voice
+                    utterance.lang = 'zh-CN';
+                    console.log('Using default voice with zh-CN language');
+                }
+                
+                utterance.rate = 0.85; // Slightly slower for clarity
                 utterance.pitch = 1;
                 utterance.volume = 1;
                 
+                // Event handlers
+                utterance.onend = function() {
+                    speakerBtn.classList.remove('playing');
+                    currentUtterance = null;
+                    console.log('Speech ended');
+                };
+                
+                utterance.onerror = function(event) {
+                    speakerBtn.classList.remove('playing');
+                    currentUtterance = null;
+                    console.error('Speech synthesis error:', event);
+                    alert('Error playing audio. Please check your browser audio settings.');
+                };
+                
+                utterance.onstart = function() {
+                    console.log('Speech started');
+                };
+                
                 // Speak
-                window.speechSynthesis.speak(utterance);
+                try {
+                    window.speechSynthesis.speak(utterance);
+                } catch (error) {
+                    console.error('Error calling speak:', error);
+                    speakerBtn.classList.remove('playing');
+                    alert('Error: ' + error.message);
+                }
             }
             
-            // Load voices (some browsers need this)
+            // Wait a bit for voices to load if needed
             const voices = window.speechSynthesis.getVoices();
-            if (voices.length > 0) {
-                setVoice();
+            if (voices.length > 0 || voicesLoaded) {
+                speakText();
             } else {
                 // Wait for voices to load
-                window.speechSynthesis.onvoiceschanged = setVoice;
-                // Fallback timeout
-                setTimeout(setVoice, 100);
+                const checkVoices = setInterval(function() {
+                    const v = window.speechSynthesis.getVoices();
+                    if (v.length > 0) {
+                        clearInterval(checkVoices);
+                        speakText();
+                    }
+                }, 100);
+                
+                // Timeout after 1 second
+                setTimeout(function() {
+                    clearInterval(checkVoices);
+                    speakText(); // Try anyway
+                }, 1000);
             }
-            
-            // Remove playing class when speech ends
-            utterance.onend = function() {
-                speakerBtn.classList.remove('playing');
-                currentUtterance = null;
-            };
-            
-            utterance.onerror = function(event) {
-                speakerBtn.classList.remove('playing');
-                currentUtterance = null;
-                console.error('Speech synthesis error:', event);
-            };
-        }
-
-        // Load voices when page loads (some browsers need this)
-        if (window.speechSynthesis.onvoiceschanged !== undefined) {
-            window.speechSynthesis.onvoiceschanged = function() {
-                // Voices loaded
-            };
         }
 
         // Add click event to flashcard
