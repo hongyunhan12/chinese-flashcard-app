@@ -122,11 +122,75 @@
             transform: rotateY(180deg);
         }
 
+        .word-container {
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 20px;
+            width: 100%;
+            margin-bottom: 20px;
+        }
+
         .word {
             font-size: 5em;
             font-weight: bold;
-            margin-bottom: 20px;
             color: #667eea;
+            margin: 0;
+        }
+
+        .speaker-btn {
+            background: rgba(102, 126, 234, 0.1);
+            border: 2px solid #667eea;
+            border-radius: 50%;
+            width: 60px;
+            height: 60px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-size: 1.5em;
+            color: #667eea;
+            margin-bottom: 20px;
+            flex-shrink: 0;
+        }
+
+        .speaker-btn:hover {
+            background: #667eea;
+            color: white;
+            transform: scale(1.1);
+            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        .speaker-btn:active {
+            transform: scale(0.95);
+        }
+
+        .speaker-btn.playing {
+            background: #667eea;
+            color: white;
+            animation: pulse 1s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% {
+                transform: scale(1);
+            }
+            50% {
+                transform: scale(1.1);
+            }
+        }
+
+        .flashcard-back .speaker-btn {
+            border-color: rgba(255, 255, 255, 0.8);
+            background: rgba(255, 255, 255, 0.1);
+            color: rgba(255, 255, 255, 0.9);
+        }
+
+        .flashcard-back .speaker-btn:hover {
+            background: rgba(255, 255, 255, 0.3);
+            color: white;
         }
 
         .pronunciation {
@@ -220,6 +284,14 @@
             h1 {
                 font-size: 1.8em;
             }
+            .speaker-btn {
+                width: 50px;
+                height: 50px;
+                font-size: 1.2em;
+            }
+            .word-container {
+                gap: 10px;
+            }
         }
     </style>
 </head>
@@ -242,11 +314,21 @@
             <div class="flashcard-container">
                 <div class="flashcard" id="flashcard">
                     <div class="flashcard-front">
-                        <div class="word" id="word">加载中...</div>
+                        <div class="word-container">
+                            <div class="word" id="word">加载中...</div>
+                            <button class="speaker-btn" id="speaker-btn-front" onclick="pronounceWord('word')" title="发音 (Pronounce)">
+                                🔊
+                            </button>
+                        </div>
                         <div class="hint">点击卡片翻转</div>
                     </div>
                     <div class="flashcard-back">
-                        <div class="pronunciation" id="pronunciation"></div>
+                        <div style="display: flex; align-items: center; justify-content: center; gap: 15px; margin-bottom: 20px;">
+                            <div class="pronunciation" id="pronunciation"></div>
+                            <button class="speaker-btn" id="speaker-btn-back" onclick="pronounceWord('pronunciation')" title="发音 (Pronounce)">
+                                🔊
+                            </button>
+                        </div>
                         <div class="meaning" id="meaning"></div>
                         <div class="hint">点击卡片翻转</div>
                     </div>
@@ -397,9 +479,113 @@
             }
         }
 
+        // Text-to-speech function
+        let currentUtterance = null;
+        
+        function pronounceWord(elementType) {
+            // If same button clicked and speech is playing, stop it
+            const speakerBtn = elementType === 'word' 
+                ? document.getElementById('speaker-btn-front')
+                : document.getElementById('speaker-btn-back');
+            
+            if (speakerBtn.classList.contains('playing')) {
+                window.speechSynthesis.cancel();
+                speakerBtn.classList.remove('playing');
+                return;
+            }
+            
+            // Stop any ongoing speech
+            window.speechSynthesis.cancel();
+            
+            let textToSpeak = '';
+            let element = null;
+            
+            if (elementType === 'word') {
+                // Pronounce the Chinese word
+                element = document.getElementById('word');
+                textToSpeak = element.textContent.trim();
+            } else if (elementType === 'pronunciation') {
+                // Pronounce the pinyin pronunciation
+                element = document.getElementById('pronunciation');
+                textToSpeak = element.textContent.trim();
+            }
+            
+            if (!textToSpeak || textToSpeak === '无拼音' || textToSpeak === '加载中...') {
+                return;
+            }
+            
+            // Add playing class
+            speakerBtn.classList.add('playing');
+            
+            // Create speech synthesis
+            const utterance = new SpeechSynthesisUtterance(textToSpeak);
+            currentUtterance = utterance;
+            
+            // Try to set Chinese language (zh-CN) for better pronunciation
+            function setVoice() {
+                const voices = window.speechSynthesis.getVoices();
+                // Try to find Chinese voice
+                const chineseVoice = voices.find(voice => 
+                    voice.lang.includes('zh') || 
+                    voice.lang.includes('CN') ||
+                    voice.name.toLowerCase().includes('chinese')
+                );
+                
+                if (chineseVoice) {
+                    utterance.voice = chineseVoice;
+                    utterance.lang = 'zh-CN';
+                } else {
+                    // Fallback: use default voice but set language
+                    utterance.lang = 'zh-CN';
+                }
+                
+                utterance.rate = 0.9; // Slightly slower for clarity
+                utterance.pitch = 1;
+                utterance.volume = 1;
+                
+                // Speak
+                window.speechSynthesis.speak(utterance);
+            }
+            
+            // Load voices (some browsers need this)
+            const voices = window.speechSynthesis.getVoices();
+            if (voices.length > 0) {
+                setVoice();
+            } else {
+                // Wait for voices to load
+                window.speechSynthesis.onvoiceschanged = setVoice;
+                // Fallback timeout
+                setTimeout(setVoice, 100);
+            }
+            
+            // Remove playing class when speech ends
+            utterance.onend = function() {
+                speakerBtn.classList.remove('playing');
+                currentUtterance = null;
+            };
+            
+            utterance.onerror = function(event) {
+                speakerBtn.classList.remove('playing');
+                currentUtterance = null;
+                console.error('Speech synthesis error:', event);
+            };
+        }
+
+        // Load voices when page loads (some browsers need this)
+        if (window.speechSynthesis.onvoiceschanged !== undefined) {
+            window.speechSynthesis.onvoiceschanged = function() {
+                // Voices loaded
+            };
+        }
+
         // Add click event to flashcard
         document.addEventListener('DOMContentLoaded', function() {
-            document.getElementById('flashcard').addEventListener('click', flipCard);
+            document.getElementById('flashcard').addEventListener('click', function(e) {
+                // Don't flip if clicking on speaker button
+                if (!e.target.closest('.speaker-btn')) {
+                    flipCard();
+                }
+            });
             
             // Keyboard navigation
             document.addEventListener('keydown', function(e) {
@@ -410,6 +596,14 @@
                 } else if (e.key === ' ' || e.key === 'Enter') {
                     e.preventDefault();
                     flipCard();
+                } else if (e.key === 'p' || e.key === 'P') {
+                    // Press 'P' to pronounce current word
+                    e.preventDefault();
+                    if (isFlipped) {
+                        pronounceWord('pronunciation');
+                    } else {
+                        pronounceWord('word');
+                    }
                 }
             });
             

@@ -6,8 +6,9 @@ An interactive web-based flashcard application similar to Quizlet for learning C
 
 - 📚 **Excel Database**: Reads Chinese words from Excel file (`Chinese_words_list.xlsx` included)
 - 🎴 **Interactive Flashcards**: Click to flip cards and see pronunciation and meaning
+- 🔊 **Audio Pronunciation**: Click the speaker button to hear the word pronounced
 - 📦 **Block Selection**: Study words in blocks of 100 (1-100, 101-200, etc.)
-- ⌨️ **Keyboard Navigation**: Use arrow keys to navigate, space/Enter to flip
+- ⌨️ **Keyboard Navigation**: Use arrow keys to navigate, space/Enter to flip, 'P' to pronounce
 - 🎨 **Modern UI**: Beautiful gradient design with smooth animations
 - 📱 **Responsive**: Works on desktop and mobile devices
 
@@ -42,11 +43,13 @@ An interactive web-based flashcard application similar to Quizlet for learning C
 
 1. **Select a block**: Use the dropdown menu to choose a block of 100 words (or "全部单词" for all words)
 2. **View the word**: The front of the card shows the Chinese word
-3. **Flip the card**: Click on the card or press Space/Enter to see pronunciation and meaning
-4. **Navigate**: 
+3. **Hear pronunciation**: Click the 🔊 speaker button on the right side to hear the word pronounced
+4. **Flip the card**: Click on the card or press Space/Enter to see pronunciation and meaning
+5. **Navigate**: 
    - Click "上一张" (Previous) or "下一张" (Next) buttons
    - Use Left/Right arrow keys to navigate
    - Use Space or Enter to flip the card
+   - Press 'P' key to pronounce the current word/pronunciation
 
 ## Excel File Format
 
