@@ -518,49 +518,131 @@
             }
         }
         
+        // Fallback: Use Google Translate TTS API (free, no API key needed)
+        function useGoogleTTS(text, lang = 'zh-CN') {
+            return new Promise((resolve, reject) => {
+                try {
+                    const audio = new Audio();
+                    // Google Translate TTS endpoint (free, public)
+                    // Note: This may have CORS restrictions in some browsers
+                    const url = `https://translate.google.com/translate_tts?ie=UTF-8&tl=${lang}&client=tw-ob&q=${encodeURIComponent(text)}`;
+                    
+                    audio.crossOrigin = 'anonymous';
+                    audio.src = url;
+                    
+                    let resolved = false;
+                    
+                    audio.onended = () => {
+                        if (!resolved) {
+                            resolved = true;
+                            resolve();
+                        }
+                    };
+                    
+                    audio.onerror = (error) => {
+                        if (!resolved) {
+                            resolved = true;
+                            console.warn('Google TTS error, trying alternative method');
+                            // Try alternative: use iframe method
+                            tryAlternativeTTS(text, lang).then(resolve).catch(reject);
+                        }
+                    };
+                    
+                    // Timeout after 5 seconds
+                    setTimeout(() => {
+                        if (!resolved) {
+                            resolved = true;
+                            audio.pause();
+                            tryAlternativeTTS(text, lang).then(resolve).catch(reject);
+                        }
+                    }, 5000);
+                    
+                    audio.play().catch(error => {
+                        if (!resolved) {
+                            resolved = true;
+                            console.warn('Audio play failed, trying alternative');
+                            tryAlternativeTTS(text, lang).then(resolve).catch(reject);
+                        }
+                    });
+                } catch (error) {
+                    reject(error);
+                }
+            });
+        }
+        
+        // Alternative TTS method using iframe (bypasses CORS)
+        function tryAlternativeTTS(text, lang = 'zh-CN') {
+            return new Promise((resolve, reject) => {
+                // Create a hidden iframe to load Google Translate TTS
+                const iframe = document.createElement('iframe');
+                iframe.style.display = 'none';
+                iframe.src = `https://translate.google.com/translate_tts?ie=UTF-8&tl=${lang}&client=tw-ob&q=${encodeURIComponent(text)}`;
+                
+                document.body.appendChild(iframe);
+                
+                // Clean up after a delay
+                setTimeout(() => {
+                    document.body.removeChild(iframe);
+                    resolve();
+                }, 3000);
+                
+                iframe.onerror = () => {
+                    document.body.removeChild(iframe);
+                    reject(new Error('TTS failed'));
+                };
+            });
+        }
+        
         function pronounceWord(elementType) {
-            // Check if speech synthesis is available
-            if (!checkSpeechSynthesis()) {
-                alert('Text-to-speech is not supported in your browser. Please try Chrome, Edge, or Safari.');
-                return;
-            }
-            
             // If same button clicked and speech is playing, stop it
             const speakerBtn = elementType === 'word' 
                 ? document.getElementById('speaker-btn-front')
                 : document.getElementById('speaker-btn-back');
             
             if (speakerBtn.classList.contains('playing')) {
+                // Stop any audio
                 window.speechSynthesis.cancel();
+                const audioElements = document.querySelectorAll('audio');
+                audioElements.forEach(audio => {
+                    audio.pause();
+                    audio.currentTime = 0;
+                });
                 speakerBtn.classList.remove('playing');
                 return;
             }
             
-            // Stop any ongoing speech
+            // Stop any ongoing speech/audio
             window.speechSynthesis.cancel();
+            const audioElements = document.querySelectorAll('audio');
+            audioElements.forEach(audio => {
+                audio.pause();
+                audio.currentTime = 0;
+            });
             
             let textToSpeak = '';
-            let element = null;
+            let chineseWord = '';
             
             if (elementType === 'word') {
-                // For Chinese word, try to get pronunciation from the card data
+                // Get Chinese word
                 const card = flashcards[currentIndex];
+                chineseWord = card ? card.word : document.getElementById('word').textContent.trim();
+                // Use pinyin if available, otherwise use Chinese word
                 if (card && card.pronunciation) {
-                    // Use pinyin pronunciation instead of Chinese characters (works better)
-                    textToSpeak = card.pronunciation.split('/')[0].trim(); // Get first pronunciation
+                    textToSpeak = card.pronunciation.split('/')[0].trim();
                 } else {
-                    // Fallback to Chinese word
-                    element = document.getElementById('word');
-                    textToSpeak = element.textContent.trim();
+                    textToSpeak = chineseWord;
                 }
             } else if (elementType === 'pronunciation') {
                 // Pronounce the pinyin pronunciation
-                element = document.getElementById('pronunciation');
+                const element = document.getElementById('pronunciation');
                 textToSpeak = element.textContent.trim();
                 // Clean up - take first pronunciation if multiple
                 if (textToSpeak.includes('/')) {
                     textToSpeak = textToSpeak.split('/')[0].trim();
                 }
+                // Get Chinese word for fallback
+                const card = flashcards[currentIndex];
+                chineseWord = card ? card.word : '';
             }
             
             if (!textToSpeak || textToSpeak === '无拼音' || textToSpeak === '加载中...') {
@@ -568,108 +650,123 @@
                 return;
             }
             
-            console.log('Speaking:', textToSpeak);
+            console.log('Speaking:', textToSpeak, 'Chinese word:', chineseWord);
             
             // Add playing class
             speakerBtn.classList.add('playing');
             
-            // Create speech synthesis
-            const utterance = new SpeechSynthesisUtterance(textToSpeak);
-            currentUtterance = utterance;
-            
-            // Function to actually speak
-            function speakText() {
-                // Ensure voices are loaded
-                let voices = window.speechSynthesis.getVoices();
-                
-                // If no voices, try loading again
-                if (voices.length === 0) {
-                    voices = loadVoices();
-                    if (!voices) {
-                        voices = window.speechSynthesis.getVoices();
-                    }
+            // Try browser TTS first, then fallback to Google TTS
+            function tryBrowserTTS() {
+                if (!checkSpeechSynthesis()) {
+                    return false;
                 }
                 
-                // Try to find Chinese voice
-                let selectedVoice = null;
-                if (voices && voices.length > 0) {
-                    selectedVoice = voices.find(voice => 
+                return new Promise((resolve) => {
+                    const utterance = new SpeechSynthesisUtterance(textToSpeak);
+                    
+                    // Try to find Chinese voice
+                    const voices = window.speechSynthesis.getVoices();
+                    let selectedVoice = voices.find(voice => 
                         voice.lang.includes('zh') || 
                         voice.lang.includes('CN') ||
-                        voice.name.toLowerCase().includes('chinese') ||
-                        voice.name.toLowerCase().includes('mandarin')
+                        voice.name.toLowerCase().includes('chinese')
                     );
                     
-                    // If no Chinese voice, try to find any voice that supports Chinese
-                    if (!selectedVoice) {
-                        selectedVoice = voices.find(voice => 
-                            voice.lang.startsWith('zh')
-                        );
+                    if (selectedVoice) {
+                        utterance.voice = selectedVoice;
+                        utterance.lang = selectedVoice.lang;
+                    } else {
+                        utterance.lang = 'zh-CN';
                     }
-                }
-                
-                // Set voice and language
-                if (selectedVoice) {
-                    utterance.voice = selectedVoice;
-                    utterance.lang = selectedVoice.lang || 'zh-CN';
-                    console.log('Using voice:', selectedVoice.name, selectedVoice.lang);
-                } else {
-                    // Fallback: use default voice
-                    utterance.lang = 'zh-CN';
-                    console.log('Using default voice with zh-CN language');
-                }
-                
-                utterance.rate = 0.85; // Slightly slower for clarity
-                utterance.pitch = 1;
-                utterance.volume = 1;
-                
-                // Event handlers
-                utterance.onend = function() {
-                    speakerBtn.classList.remove('playing');
-                    currentUtterance = null;
-                    console.log('Speech ended');
-                };
-                
-                utterance.onerror = function(event) {
-                    speakerBtn.classList.remove('playing');
-                    currentUtterance = null;
-                    console.error('Speech synthesis error:', event);
-                    alert('Error playing audio. Please check your browser audio settings.');
-                };
-                
-                utterance.onstart = function() {
-                    console.log('Speech started');
-                };
-                
-                // Speak
-                try {
-                    window.speechSynthesis.speak(utterance);
-                } catch (error) {
-                    console.error('Error calling speak:', error);
-                    speakerBtn.classList.remove('playing');
-                    alert('Error: ' + error.message);
-                }
+                    
+                    utterance.rate = 0.85;
+                    utterance.pitch = 1;
+                    utterance.volume = 1;
+                    
+                    let resolved = false;
+                    
+                    utterance.onend = function() {
+                        if (!resolved) {
+                            resolved = true;
+                            resolve(true);
+                        }
+                    };
+                    
+                    utterance.onerror = function(event) {
+                        console.warn('Browser TTS failed:', event.error);
+                        if (!resolved) {
+                            resolved = true;
+                            resolve(false);
+                        }
+                    };
+                    
+                    // Timeout after 2 seconds
+                    setTimeout(() => {
+                        if (!resolved) {
+                            resolved = true;
+                            window.speechSynthesis.cancel();
+                            resolve(false);
+                        }
+                    }, 2000);
+                    
+                    try {
+                        window.speechSynthesis.speak(utterance);
+                    } catch (error) {
+                        console.warn('Browser TTS error:', error);
+                        resolve(false);
+                    }
+                });
             }
             
-            // Wait a bit for voices to load if needed
+            // Try browser TTS first
             const voices = window.speechSynthesis.getVoices();
             if (voices.length > 0 || voicesLoaded) {
-                speakText();
+                tryBrowserTTS().then(success => {
+                    if (!success) {
+                        // Fallback to Google TTS
+                        console.log('Browser TTS failed, using Google TTS fallback');
+                        useGoogleTTSFallback();
+                    } else {
+                        speakerBtn.classList.remove('playing');
+                    }
+                });
             } else {
-                // Wait for voices to load
-                const checkVoices = setInterval(function() {
+                // Load voices first
+                const checkVoices = setInterval(() => {
                     const v = window.speechSynthesis.getVoices();
                     if (v.length > 0) {
                         clearInterval(checkVoices);
-                        speakText();
+                        tryBrowserTTS().then(success => {
+                            if (!success) {
+                                useGoogleTTSFallback();
+                            } else {
+                                speakerBtn.classList.remove('playing');
+                            }
+                        });
                     }
                 }, 100);
                 
-                // Timeout after 1 second
-                setTimeout(function() {
+                setTimeout(() => {
                     clearInterval(checkVoices);
-                    speakText(); // Try anyway
+                    useGoogleTTSFallback();
                 }, 1000);
+            }
+            
+            // Fallback function using Google TTS
+            function useGoogleTTSFallback() {
+                // Use Chinese word if we have it, otherwise use pinyin
+                const textForTTS = chineseWord || textToSpeak;
+                
+                useGoogleTTS(textForTTS, 'zh-CN')
+                    .then(() => {
+                        speakerBtn.classList.remove('playing');
+                        console.log('Google TTS completed');
+                    })
+                    .catch(error => {
+                        speakerBtn.classList.remove('playing');
+                        console.error('Google TTS error:', error);
+                        alert('Unable to play audio. Please check your internet connection and try again.');
+                    });
             }
         }
 
