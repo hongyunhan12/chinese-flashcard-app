@@ -18,13 +18,13 @@ app = FastAPI(title="Chinese Flashcard App", version="1.0.0")
 # Templates directory - use absolute path
 TEMPLATE_DIR = Path(__file__).parent / "templates"
 if not TEMPLATE_DIR.exists():
-    raise FileNotFoundError(f"Templates directory not found at: {TEMPLATE_DIR}")
+    TEMPLATE_DIR.mkdir(parents=True, exist_ok=True)
 templates = Jinja2Templates(directory=str(TEMPLATE_DIR))
 
 # Path to Excel file - supports environment variable for deployment
-# Priority: 1. Environment variable, 2. Default path, 3. Current directory
+# Priority: 1. Environment variable, 2. Default path (relative to script), 3. Current directory
 EXCEL_FILE_ENV = os.getenv("EXCEL_FILE_PATH")
-DEFAULT_EXCEL_PATH = Path(r"C:\Users\nieli\Documents\Flashcard\Chinese_words_list.xlsx")
+DEFAULT_EXCEL_PATH = Path(__file__).parent / "Chinese_words_list.xlsx"
 CURRENT_DIR_EXCEL = Path("Chinese_words_list.xlsx")
 
 # Determine which Excel file to use
